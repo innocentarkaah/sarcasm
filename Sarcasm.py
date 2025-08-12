@@ -72,12 +72,11 @@ def load_elmo_model():
 
 def elmo_embeddings(model, texts):
     """Generate ELMo embeddings for text inputs"""
-    # Convert model to concrete function
-    embed_fn = tf.function(
-        model,
-        input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string)]
-    )
-
+    # Create a wrapper function that can be converted to a TensorFlow graph
+    @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string)])
+    def embed_fn(texts):
+        return model(texts)["default"]
+    
     embeddings = []
     batch_size = 32
 
@@ -87,7 +86,7 @@ def elmo_embeddings(model, texts):
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         # Get embeddings
-        batch_emb = embed_fn(tf.constant(batch))["default"].numpy()
+        batch_emb = embed_fn(tf.constant(batch)).numpy()
         embeddings.append(batch_emb)
 
         # Update progress
