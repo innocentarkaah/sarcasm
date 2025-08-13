@@ -132,7 +132,7 @@ def elmo_embeddings(model, texts):
                     st.info("Using 'elmo' output key")
                 elif 'default' in output:
                     embedding_key = 'default'
-                    st.info("Using 'default' output key')
+                    st.info("Using 'default' output key")
                 elif 'output' in output:
                     embedding_key = 'output'
                     st.info("Using 'output' key")
