@@ -47,7 +47,7 @@ os.makedirs(ELMO_LOCAL_PATH, exist_ok=True)
 
 
 def load_elmo_model():
-    """Load ELMo model with local caching and return its signature"""
+    """Load ELMo model with local caching and handle different signature versions"""
     # Check if model is already downloaded
     if not os.listdir(ELMO_LOCAL_PATH):
         st.info("Downloading ELMo model (first time, ~900MB). This may take several minutes...")
@@ -65,28 +65,100 @@ def load_elmo_model():
     try:
         # Load from local cache
         model = hub.load(ELMO_LOCAL_PATH)
-        # Get the callable function from the model's signature
-        return model.signatures["default"]
+        
+        # Handle different signature versions
+        if hasattr(model, 'signatures'):
+            # Try to get serving_default signature first
+            if 'serving_default' in model.signatures:
+                st.info("Using 'serving_default' signature")
+                return model.signatures['serving_default']
+            
+            # Try to get default signature
+            if 'default' in model.signatures:
+                st.info("Using 'default' signature")
+                return model.signatures['default']
+            
+            # Try to get any available signature
+            available_signatures = list(model.signatures.keys())
+            if available_signatures:
+                signature_name = available_signatures[0]
+                st.warning(f"Using first available signature: '{signature_name}'")
+                return model.signatures[signature_name]
+        
+        # If no signatures found, return the model directly
+        st.info("No signatures found, using model directly")
+        return model
     except Exception as e:
+        # Provide detailed error information
         st.error(f"Error loading cached ELMo model: {e}")
+        
+        # Show available signatures if possible
+        try:
+            model = hub.load(ELMO_LOCAL_PATH)
+            if hasattr(model, 'signatures'):
+                signatures = list(model.signatures.keys())
+                st.error(f"Available signatures: {signatures}")
+            else:
+                st.error("No signatures attribute found in model")
+        except:
+            st.error("Could not inspect model signatures")
+        
         st.error("Try clearing cache and retrying")
         st.stop()
 
 
 def elmo_embeddings(model, texts):
-    """Generate ELMo embeddings for text inputs using the model signature"""
+    """Generate ELMo embeddings for text inputs with robust key handling"""
     embeddings = []
     batch_size = 32
+    embedding_key = None  # To store the key we discover
 
     progress_bar = st.progress(0)
     status_text = st.empty()
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        # Convert batch to tensor and get embeddings
         input_tensor = tf.constant(batch)
+        
+        # Get model output
         output = model(input_tensor)
-        batch_emb = output["default"].numpy()
+        
+        # Determine the correct output key (only on first batch)
+        if embedding_key is None:
+            if isinstance(output, dict):
+                # Check for known keys
+                if 'elmo' in output:
+                    embedding_key = 'elmo'
+                    st.info("Using 'elmo' output key")
+                elif 'default' in output:
+                    embedding_key = 'default'
+                    st.info("Using 'default' output key')
+                elif 'output' in output:
+                    embedding_key = 'output'
+                    st.info("Using 'output' key")
+                else:
+                    # Try to find any tensor output
+                    for key, value in output.items():
+                        if isinstance(value, tf.Tensor):
+                            embedding_key = key
+                            st.warning(f"Using discovered output key: '{embedding_key}'")
+                            break
+                    
+                    # If still not found, show error
+                    if embedding_key is None:
+                        st.error(f"Could not find embedding tensor in model output. Keys: {list(output.keys())}")
+                        st.stop()
+            else:
+                # Output is a tensor, not a dictionary
+                embedding_key = 'tensor'
+                st.info("Model output is a tensor")
+        
+        # Extract embeddings
+        if embedding_key == 'tensor':
+            batch_emb = output.numpy()
+        else:
+            batch_emb = output[embedding_key].numpy()
+        
         embeddings.append(batch_emb)
 
         # Update progress
