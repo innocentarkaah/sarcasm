@@ -116,13 +116,60 @@ def elmo_embeddings(model, texts):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
+    def _call_model(m, batch):
+        """
+        Try various calling conventions for the loaded model/signature.
+        Returns the raw model output (could be a tensor or dict of tensors).
+        """
+        # ensure we have a tf.string tensor for the model
+        try:
+            inp = tf.convert_to_tensor(batch, dtype=tf.string)
+        except Exception:
+            inp = tf.constant(batch)
+
+        # 1) Try direct call (some models accept a single tensor)
+        try:
+            return m(inp)
+        except Exception:
+            pass
+
+        # 2) Try calling using common kwarg names
+        keys_to_try = ['inputs', 'input', 'text', 'texts', 'tokens', 'sentences', 'strings']
+        for k in keys_to_try:
+            try:
+                return m(**{k: inp})
+            except Exception:
+                continue
+
+        # 3) Try passing a dict (some SavedModels expect a dict)
+        try:
+            return m({'inputs': inp})
+        except Exception:
+            pass
+
+        # 4) Inspect structured_input_signature (ConcreteFunction) and build kwargs
+        try:
+            sig = getattr(m, 'structured_input_signature', None)
+            if sig:
+                _, kwargs_spec = sig
+                if isinstance(kwargs_spec, dict) and len(kwargs_spec) > 0:
+                    call_kwargs = {name: inp for name in kwargs_spec.keys()}
+                    return m(**call_kwargs)
+        except Exception:
+            pass
+
+        # If nothing worked, raise a meaningful error
+        raise TypeError(
+            "Unable to call the ELMo model with any known signature. "
+            "Tried direct call, common kwarg names, dict wrapper, and structured_input_signature."
+        )
+
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        input_tensor = tf.constant(batch)
-        
-        # Get model output
-        output = model(input_tensor)
-        
+
+        # Call the model using the robust helper
+        output = _call_model(model, batch)
+
         # Determine the correct output key (only on first batch)
         if embedding_key is None:
             if isinstance(output, dict):
@@ -143,22 +190,36 @@ def elmo_embeddings(model, texts):
                             embedding_key = key
                             st.warning(f"Using discovered output key: '{embedding_key}'")
                             break
-                    
+
                     # If still not found, show error
                     if embedding_key is None:
                         st.error(f"Could not find embedding tensor in model output. Keys: {list(output.keys())}")
                         st.stop()
             else:
-                # Output is a tensor, not a dictionary
+                # Output is a tensor-like object, not a dictionary
                 embedding_key = 'tensor'
                 st.info("Model output is a tensor")
-        
+
         # Extract embeddings
         if embedding_key == 'tensor':
-            batch_emb = output.numpy()
+            # If output is a tensor-like object (e.g., tf.Tensor or numpy array)
+            try:
+                batch_emb = output.numpy()
+            except Exception:
+                # fallback if it's already a numpy array
+                batch_emb = np.array(output)
         else:
-            batch_emb = output[embedding_key].numpy()
-        
+            try:
+                batch_emb = output[embedding_key].numpy()
+            except Exception:
+                # If the value is already numpy or not a tf.Tensor
+                val = output[embedding_key]
+                try:
+                    batch_emb = np.array(val)
+                except Exception as e:
+                    st.error(f"Could not convert model output to numpy: {e}")
+                    st.stop()
+
         embeddings.append(batch_emb)
 
         # Update progress
