@@ -116,54 +116,110 @@ def elmo_embeddings(model, texts):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    def _call_model(m, batch):
-        """
-        Try various calling conventions for the loaded model/signature.
-        Returns the raw model output (could be a tensor or dict of tensors).
-        """
-        # ensure we have a tf.string tensor for the model
+    def _to_string_tensor(batch):
+        """Safely convert a Python list of strings to a tf.string tensor"""
         try:
-            inp = tf.convert_to_tensor(batch, dtype=tf.string)
+            return tf.convert_to_tensor(batch, dtype=tf.string)
         except Exception:
-            inp = tf.constant(batch)
+            # fallback
+            try:
+                batch = [str(x) for x in batch]
+                return tf.constant(batch, dtype=tf.string)
+            except Exception:
+                return tf.constant(batch)
 
-        # 1) Try direct call (some models accept a single tensor)
+    def _try_call_concrete_fn(fn, inp):
+        """
+        Try calling a ConcreteFunction or callable `fn` with multiple conventions.
+        Returns (success_flag, output, used_call_description)
+        """
+        # 1) direct call with tensor
         try:
-            return m(inp)
+            out = fn(inp)
+            return True, out, "direct_tensor"
         except Exception:
             pass
 
-        # 2) Try calling using common kwarg names
+        # 2) try common kwarg names
         keys_to_try = ['inputs', 'input', 'text', 'texts', 'tokens', 'sentences', 'strings']
         for k in keys_to_try:
             try:
-                return m(**{k: inp})
+                out = fn(**{k: inp})
+                return True, out, f"kwarg_{k}"
             except Exception:
                 continue
 
-        # 3) Try passing a dict (some SavedModels expect a dict)
+        # 3) try passing dict wrapper
         try:
-            return m({'inputs': inp})
+            out = fn({'inputs': inp})
+            return True, out, "dict_inputs"
         except Exception:
             pass
 
-        # 4) Inspect structured_input_signature (ConcreteFunction) and build kwargs
+        # 4) try to build kwargs from structured_input_signature if present
         try:
-            sig = getattr(m, 'structured_input_signature', None)
+            sig = getattr(fn, 'structured_input_signature', None)
             if sig:
                 _, kwargs_spec = sig
                 if isinstance(kwargs_spec, dict) and len(kwargs_spec) > 0:
+                    # Build kwargs mapping all names to inp (best-effort)
                     call_kwargs = {name: inp for name in kwargs_spec.keys()}
-                    return m(**call_kwargs)
+                    try:
+                        out = fn(**call_kwargs)
+                        return True, out, f"structured_inputs_{list(kwargs_spec.keys())}"
+                    except Exception:
+                        pass
         except Exception:
             pass
 
-        # If nothing worked, raise a meaningful error
+        return False, None, None
+
+    def _call_model(m, batch):
+        """Try various calling strategies on model `m` for `batch` (list of strings)."""
+        inp = _to_string_tensor(batch)
+
+        # If model has signatures (a dict of ConcreteFunctions), try them first
+        if hasattr(m, 'signatures') and isinstance(getattr(m, 'signatures'), dict):
+            sig_keys = list(m.signatures.keys())
+            for key in sig_keys:
+                fn = m.signatures[key]
+                success, out, desc = _try_call_concrete_fn(fn, inp)
+                if success:
+                    st.info(f"Called signature '{key}' with method: {desc}")
+                    return out
+            # if none of the signatures worked, continue to try the top-level object
+        # If m itself is a ConcreteFunction or callable, try it
+        success, out, desc = _try_call_concrete_fn(m, inp)
+        if success:
+            st.info(f"Called top-level model object with method: {desc}")
+            return out
+
+        # If it's a keras layer wrapper with call method, try calling its .call
+        if hasattr(m, 'call'):
+            try:
+                fn = m.call
+                success, out, desc = _try_call_concrete_fn(fn, inp)
+                if success:
+                    st.info(f"Called model.call with method: {desc}")
+                    return out
+            except Exception:
+                pass
+
+        # Nothing worked — raise TypeError with useful debug info
+        sig_info = None
+        try:
+            if hasattr(m, 'signatures'):
+                sig_info = list(m.signatures.keys())
+        except Exception:
+            sig_info = None
+
         raise TypeError(
-            "Unable to call the ELMo model with any known signature. "
-            "Tried direct call, common kwarg names, dict wrapper, and structured_input_signature."
+            f"Unable to call the ELMo model. Model type: {type(m)}. "
+            f"Available signatures: {sig_info}. Tried direct tensor, common kwargs, dict wrapper, "
+            f"and structured_input_signature. See logs for more."
         )
 
+    # Process in batches
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
 
@@ -186,7 +242,7 @@ def elmo_embeddings(model, texts):
                 else:
                     # Try to find any tensor output
                     for key, value in output.items():
-                        if isinstance(value, tf.Tensor):
+                        if isinstance(value, tf.Tensor) or hasattr(value, 'numpy'):
                             embedding_key = key
                             st.warning(f"Using discovered output key: '{embedding_key}'")
                             break
@@ -198,7 +254,7 @@ def elmo_embeddings(model, texts):
             else:
                 # Output is a tensor-like object, not a dictionary
                 embedding_key = 'tensor'
-                st.info("Model output is a tensor")
+                st.info("Model output is a tensor or tensor-like object")
 
         # Extract embeddings
         if embedding_key == 'tensor':
@@ -206,30 +262,33 @@ def elmo_embeddings(model, texts):
             try:
                 batch_emb = output.numpy()
             except Exception:
-                # fallback if it's already a numpy array
+                # fallback if it's already a numpy array or list
                 batch_emb = np.array(output)
         else:
             try:
-                batch_emb = output[embedding_key].numpy()
-            except Exception:
-                # If the value is already numpy or not a tf.Tensor
                 val = output[embedding_key]
                 try:
+                    batch_emb = val.numpy()
+                except Exception:
                     batch_emb = np.array(val)
-                except Exception as e:
-                    st.error(f"Could not convert model output to numpy: {e}")
-                    st.stop()
+            except Exception as e:
+                st.error(f"Could not extract embeddings for key '{embedding_key}': {e}")
+                st.stop()
 
         embeddings.append(batch_emb)
 
         # Update progress
-        progress = min((i + batch_size) / len(texts), 1.0)
+        progress = min((i + batch_size) / max(len(texts), 1), 1.0)
         progress_bar.progress(progress)
         status_text.text(f"Processing batch {i // batch_size + 1}/{(len(texts) - 1) // batch_size + 1}")
 
     progress_bar.empty()
     status_text.empty()
-    return np.vstack(embeddings)
+    try:
+        return np.vstack(embeddings)
+    except Exception:
+        # If stacking fails, try concatenation (handles ragged shapes)
+        return np.concatenate(embeddings, axis=0)
 
 
 def preprocess_text(text):
