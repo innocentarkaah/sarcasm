@@ -20,7 +20,7 @@ from nltk.tokenize import word_tokenize
 from wordcloud import WordCloud
 from textblob import TextBlob
 import umap.umap_ as umap
-import shutil  # Added for cache clearing
+import shutil
 
 # Download NLTK resources
 nltk.download('stopwords', quiet=True)
@@ -47,7 +47,7 @@ os.makedirs(ELMO_LOCAL_PATH, exist_ok=True)
 
 
 def load_elmo_model():
-    """Load ELMo model with local caching"""
+    """Load ELMo model with local caching and return its signature"""
     # Check if model is already downloaded
     if not os.listdir(ELMO_LOCAL_PATH):
         st.info("Downloading ELMo model (first time, ~900MB). This may take several minutes...")
@@ -64,7 +64,9 @@ def load_elmo_model():
 
     try:
         # Load from local cache
-        return hub.load(ELMO_LOCAL_PATH)
+        model = hub.load(ELMO_LOCAL_PATH)
+        # Get the callable function from the model's signature
+        return model.signatures["default"]
     except Exception as e:
         st.error(f"Error loading cached ELMo model: {e}")
         st.error("Try clearing cache and retrying")
@@ -72,15 +74,7 @@ def load_elmo_model():
 
 
 def elmo_embeddings(model, texts):
-    """Generate ELMo embeddings for text inputs"""
-    # Create a wrapper function that can be converted to a TensorFlow graph
-    @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string)])
-    def embed_fn(texts):
-        # Get model output - ELMo returns a dict with 'elmo' key
-        output = model(texts)
-        # Return the ELMo embeddings tensor
-        return output["elmo"]
-    
+    """Generate ELMo embeddings for text inputs using the model signature"""
     embeddings = []
     batch_size = 32
 
@@ -89,8 +83,10 @@ def elmo_embeddings(model, texts):
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        # Get embeddings
-        batch_emb = embed_fn(tf.constant(batch)).numpy()
+        # Convert batch to tensor and get embeddings
+        input_tensor = tf.constant(batch)
+        output = model(input_tensor)
+        batch_emb = output["default"].numpy()
         embeddings.append(batch_emb)
 
         # Update progress
