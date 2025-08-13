@@ -20,6 +20,7 @@ from nltk.tokenize import word_tokenize
 from wordcloud import WordCloud
 from textblob import TextBlob
 import umap.umap_ as umap
+import shutil  # Added for cache clearing
 
 # Download NLTK resources
 nltk.download('stopwords', quiet=True)
@@ -75,7 +76,10 @@ def elmo_embeddings(model, texts):
     # Create a wrapper function that can be converted to a TensorFlow graph
     @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string)])
     def embed_fn(texts):
-        return model(texts)["default"]
+        # Get model output - ELMo returns a dict with 'elmo' key
+        output = model(texts)
+        # Return the ELMo embeddings tensor
+        return output["elmo"]
     
     embeddings = []
     batch_size = 32
