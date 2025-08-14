@@ -66,87 +66,9 @@ except Exception:
 # ==============================
 # Streamlit: Page Config & Theme
 # ==============================
-st.set_page_config(page_title="Sarcasm Detection (ELMo + LR/RF)", page_icon="📰", layout="wide")
+st.set_page_config(page_title="Sarcasm Detection", page_icon="📰", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    :root{
-      --bg:#ffffff; --panel:#f9fafb; --border:#d1d5db; --text:#111827;
-      --muted:#6b7280; --accent:#2563eb; --good:#16a34a; --warn:#d97706; --bad:#dc2626;
-    }
 
-    /* App background & sidebar */
-    html, body, [data-testid="stAppViewContainer"]{ background:var(--bg); color:var(--text); }
-    section[data-testid="stSidebar"]{ background:linear-gradient(180deg,#f3f4f6 0%, #e5e7eb 100%); }
-    section[data-testid="stSidebar"] *{ color:#111827 !important; }
-
-    a { color: var(--accent) !important; }
-
-    /* Cards / panels */
-    .card{
-      background:var(--panel); border:1px solid var(--border);
-      border-radius:16px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.05);
-    }
-
-    /* Buttons */
-    .stButton>button, .stDownloadButton>button{
-      background:var(--panel); color:var(--text); border:1px solid var(--border);
-      border-radius:10px; padding:.6rem 1rem;
-    }
-    .stButton>button:hover, .stDownloadButton>button:hover{ border-color:#9ca3af; }
-
-    /* Inputs (text/number/textarea) */
-    .stTextInput input, .stTextArea textarea, .stNumberInput input{
-      background: var(--panel) !important; color: var(--text) !important; border:1px solid var(--border) !important;
-    }
-
-    /* Selectbox / Multiselect */
-    div[data-baseweb="select"] > div{
-      background: var(--panel) !important; color: var(--text) !important; border:1px solid var(--border) !important;
-    }
-    div[data-baseweb="select"] svg{ color: var(--muted) !important; }
-
-    /* File Uploader */
-    section[data-testid="stFileUploaderDropzone"]{
-      background: var(--panel) !important; border:1px dashed var(--border) !important; border-radius:12px !important;
-    }
-
-    /* Dataframe */
-    div[data-testid="stDataFrame"]{
-      background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:8px;
-    }
-
-    /* Metrics */
-    div[data-testid="stMetricValue"]{ color:var(--text) !important; }
-    div[data-testid="stMetricLabel"]{ color:var(--muted) !important; }
-
-    /* Tabs: sticky with accent underline on active */
-    div[data-testid="stTabs"] > div[role="tablist"]{
-      position:sticky; top:0; z-index:10; background:var(--panel); border-bottom:1px solid var(--border);
-    }
-    div[role="tab"]{
-      color: var(--muted) !important; border-bottom: 2px solid transparent !important; padding-bottom:.4rem !important;
-    }
-    div[role="tab"][aria-selected="true"]{
-      color: var(--text) !important; border-bottom: 2px solid var(--accent) !important;
-    }
-
-    /* Expanders */
-    details[data-testid="stExpander"]{
-      background: var(--panel); border:1px solid var(--border); border-radius:12px;
-    }
-
-    /* Code blocks & tables in markdown */
-    pre, code, .stMarkdown table{
-      background: var(--panel) !important; color: var(--text) !important;
-      border:1px solid var(--border) !important; border-radius:8px;
-    }
-    .stMarkdown table th, .stMarkdown table td{ border-color: var(--border) !important; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 
 # ==============================
@@ -301,29 +223,9 @@ def st_plot_cm(cm, title="Confusion Matrix", labels=("Actual 0","Actual 1"), pre
 # Sidebar Navigation
 # ==============================
 st.sidebar.title("📰 Sarcasm Detector")
-page = st.sidebar.radio("Navigate", [
-    "Data Upload",
-    "Data Preprocessing",
-    "Model Training",
-    "Model Evaluation",
-    "Prediction",
-])
 st.sidebar.markdown("---")
 st.sidebar.caption("Upload → Preprocess → Train → Evaluate → Predict")
 st.sidebar.markdown("---")
-st.sidebar.markdown(
-    """
-    <div style='font-size:12px; line-height:1.3;'>
-    Erwin K. Opare-Essel - 22254064<br>
-    Emmanuel Oduro Dwamena - 11410636<br>
-    Elizabeth Afranewaa Abayateye - 22252474<br>
-    Elien Samira Osumanu - 11410414<br>
-    Innocent Arkaah- 11410788<br>
-    Sheena Pognaa Dasoberi - 22252392
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 # ==============================
 # Page 1 — Data Upload
@@ -632,8 +534,92 @@ def page_prediction():
 # Router
 # ==============================
 st.sidebar.markdown("---")
-if page == "Data Upload":   page_upload()
-elif page == "Data Preprocessing": page_preprocess()
-elif page == "Model Training": page_train()
-elif page == "Model Evaluation": page_evaluation()
-elif page == "Prediction": page_prediction()
+
+# --- Fixed top navigation tabs (UI-only; ML code untouched) ---
+st.markdown(
+    """
+    <style>
+    /* Pin the FIRST st.tabs container to the top */
+    div[data-testid='stTabs']:first-of-type {
+        position: fixed; top: 0; left: 0; right: 0; width: 100%;
+        z-index: 10000;
+        background: var(--bg, #f6f8fb);
+        margin: 0;
+    }
+    /* Style the tablist and add a divider + shadow */
+    div[data-testid='stTabs']:first-of-type > div[role='tablist'] {
+        position: relative;
+        border-bottom: 1px solid #e5e7eb;
+        box-shadow: 0 2px 6px rgba(0,0,0,.06);
+        padding-top: .35rem; padding-bottom: .35rem;
+        background: transparent;
+    }
+    /* Make space so content isn't hidden under the fixed tabs */
+    .block-container { padding-top: 4.8rem; }
+    /* Keep Streamlit header/menu above tabs */
+    header[data-testid='stHeader'] { z-index: 10100; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+_tab_labels = [
+    "About",
+    "Home & Data Overview",
+    "Data Preprocessing",
+    "Model Training",
+    "Model Evaluation",
+    "Prediction Interface",
+]
+_tabs = st.tabs(_tab_labels)
+
+with _tabs[0]:
+    st.markdown("""
+    <div style="background-color: #f2f7f7; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem;">
+        <h2 style="color: #030a0a; text-align: center;">📌 About This App</h2>
+        <p style="text-align:center;max-width:900px;margin:0 auto;">
+            This dashboard predicts Sarcasm in Comments Using ELMo
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background-color: #f2f7f7; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem;">
+        <h2 style="color: #030a0a; text-align: center;">👥 Group 7 Team Members</h2>
+        <div style="display: flex; justify-content: space-around; flex-wrap: wrap;">
+            <div>• Erwin K. Opare-Essel - 22254064</div>
+            <div>• Emmanuel Oduro Dwamena - 11410636</div>
+            <div>• Elizabeth Afranewaa Abayateye - 22252474</div>
+            <div>• Elien Samira Osumanu - 11410414</div>
+            <div>• Innocent Arkaah- 11410788</div>
+            <div>• Sheena Pognaa Dasoberi - 22252392</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with _tabs[1]:
+    # Your original 'home/data' page
+    page_upload()
+
+with _tabs[2]:
+    st.subheader("Data Preprocessing")
+    if st.button("▶ Start Preprocessing", key="btn_preprocess_start"):
+        page_preprocess()
+    else:
+        st.info("Click **Start Preprocessing** to begin. This keeps your settings visible before running.")
+
+with _tabs[3]:
+    st.subheader("Model Training")
+    if st.button("▶ Start Training", key="btn_train_start"):
+        page_train()
+    else:
+        st.info("Click **Start Training** to fit models with the current preprocessing & hyperparameters.")
+
+with _tabs[4]:
+    page_evaluation()
+
+with _tabs[5]:
+    # Single & batch prediction UI (unique keys are already defined inside this function)
+    page_prediction()
+
+
