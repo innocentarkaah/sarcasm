@@ -585,7 +585,7 @@ with _tabs[0]:
 
     st.markdown("""
     <div style="background-color: #f2f7f7; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem;">
-        <h2 style="color: #030a0a; text-align: center;">👥 Group 7 Team Members</h2>
+        <h2 style="color: #030a0a; text-align: center;">👥 Group 9 Team Members</h2>
         <div style="display: flex; justify-content: space-around; flex-wrap: wrap;">
             <div>• Erwin K. Opare-Essel - 22254064</div>
             <div>• Emmanuel Oduro Dwamena - 11410636</div>
