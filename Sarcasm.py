@@ -3,8 +3,45 @@ from datetime import datetime
 
 import numpy as np
 import hashlib
+
+#import page
 import pandas as pd
 import streamlit as st
+
+
+
+# ==============================
+# Login Helpers (UI-only; no ML changes)
+# ==============================
+def _sha256(s: str) -> str:
+    import hashlib as _hl
+    return _hl.sha256(s.encode("utf-8")).hexdigest()
+
+def _get_credentials():
+    import os as _os
+    user = _os.getenv("SARCASM_USER", "admin")
+    # default password = "admin123" (sha256)
+    default_hash = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"
+    pw_hash = _os.getenv("SARCASM_PASS_HASH", default_hash)
+    return user, pw_hash
+
+def render_login():
+    st.session_state.setdefault("is_authed", False)
+    st.title("🔐 Sign in")
+    st.caption("Enter your credentials to access the Sarcasm Detector dashboard.")
+    with st.form("login_form"):
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Sign in")
+        if submitted:
+            valid_user, valid_hash = _get_credentials()
+            if u.strip() == valid_user and _sha256(p) == valid_hash:
+                st.session_state.is_authed = True
+                st.success("Signed in. Loading app…")
+                st.experimental_rerun() if hasattr(st, "experimental_rerun") else st.rerun()
+            else:
+                st.error("Invalid username or password.")
+    #st.info("Tip: set env vars **SARCASM_USER** and **SARCASM_PASS_HASH** (sha256) to override defaults.")
 
 # --- UI helper (session only): stable hash of a list of texts ---
 def _hash_texts(texts):
@@ -46,6 +83,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, roc_curve, confusion_matrix
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 # ------------------------------
 # ELMo via TensorFlow Hub (TF1)
@@ -66,10 +104,90 @@ except Exception:
 # ==============================
 # Streamlit: Page Config & Theme
 # ==============================
-st.set_page_config(page_title="Sarcasm Detection", page_icon="📰", layout="wide")
+st.set_page_config(page_title="Sarcasm Detection (ELMo + LR/RF)", page_icon="📰", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    :root{
+      --bg:#ffffff; --panel:#f9fafb; --border:#d1d5db; --text:#111827;
+      --muted:#6b7280; --accent:#2563eb; --good:#16a34a; --warn:#d97706; --bad:#dc2626;
+    }
 
+    /* App background & sidebar */
+    html, body, [data-testid="stAppViewContainer"]{ background:var(--bg); color:var(--text); }
+    section[data-testid="stSidebar"]{ background:linear-gradient(180deg,#f3f4f6 0%, #e5e7eb 100%); }
+    section[data-testid="stSidebar"] *{ color:#111827 !important; }
 
+    a { color: var(--accent) !important; }
+
+    /* Cards / panels */
+    .card{
+      background:var(--panel); border:1px solid var(--border);
+      border-radius:16px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.05);
+    }
+
+    /* Buttons */
+    .stButton>button, .stDownloadButton>button{
+      background:var(--panel); color:var(--text); border:1px solid var(--border);
+      border-radius:10px; padding:.6rem 1rem;
+    }
+    .stButton>button:hover, .stDownloadButton>button:hover{ border-color:#9ca3af; }
+
+    /* Inputs (text/number/textarea) */
+    .stTextInput input, .stTextArea textarea, .stNumberInput input{
+      background: var(--panel) !important; color: var(--text) !important; border:1px solid var(--border) !important;
+    }
+
+    /* Selectbox / Multiselect */
+    div[data-baseweb="select"] > div{
+      background: var(--panel) !important; color: var(--text) !important; border:1px solid var(--border) !important;
+    }
+    div[data-baseweb="select"] svg{ color: var(--muted) !important; }
+
+    /* File Uploader */
+    section[data-testid="stFileUploaderDropzone"]{
+      background: var(--panel) !important; border:1px dashed var(--border) !important; border-radius:12px !important;
+    }
+
+    /* Dataframe */
+    div[data-testid="stDataFrame"]{
+      background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:8px;
+    }
+
+    /* Metrics */
+    div[data-testid="stMetricValue"]{ color:var(--text) !important; }
+    div[data-testid="stMetricLabel"]{ color:var(--muted) !important; }
+
+    /* Tabs: sticky with accent underline on active */
+    div[data-testid="stTabs"] > div[role="tablist"]{
+      position:sticky; top:0; z-index:10; background:var(--panel); border-bottom:1px solid var(--border);
+    }
+    div[role="tab"]{
+      color: var(--muted) !important; border-bottom: 2px solid transparent !important; padding-bottom:.4rem !important;
+    }
+    div[role="tab"][aria-selected="true"]{
+      color: var(--text) !important; border-bottom: 2px solid var(--accent) !important;
+    }
+
+    /* Expanders */
+    details[data-testid="stExpander"]{
+      background: var(--panel); border:1px solid var(--border); border-radius:12px;
+    }
+
+    /* Code blocks & tables in markdown */
+    pre, code, .stMarkdown table{
+      background: var(--panel) !important; color: var(--text) !important;
+      border:1px solid var(--border) !important; border-radius:8px;
+    }
+    .stMarkdown table th, .stMarkdown table td{ border-color: var(--border) !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.sidebar.title("📰 Sarcasm Detector")
+st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"is_authed": False}))
 
 # ==============================
 # Session-State Initialization
@@ -82,6 +200,7 @@ def _init_state():
     ss.setdefault("clean_lower", True)
     ss.setdefault("clean_punct", True)
     ss.setdefault("dedupe", True)
+    ss.setdefault("remove_stop", True)
     ss.setdefault("test_size", 0.2)
     ss.setdefault("random_state", 42)
     ss.setdefault("down_maj_mult", 1.0)
@@ -194,7 +313,7 @@ def st_plot_dist(y_before, y_after, title):
     c0a, c1a = _counts(y_after)
     labels = ["Class 0 (Not Sarcastic)", "Class 1 (Sarcastic)"]
     x = np.arange(len(labels)); width = 0.35
-    fig = plt.figure(figsize=(7, 5))
+    fig = plt.figure(figsize=(6, 4))
     plt.bar(x - width/2, [c0b, c1b], width, label="Before")
     plt.bar(x + width/2, [c0a, c1a], width, label="After")
     for i, v in enumerate([c0b, c1b]): plt.text(x[i] - width/2, v, str(v), ha='center', va='bottom')
@@ -220,9 +339,7 @@ def st_plot_cm(cm, title="Confusion Matrix", labels=("Actual 0","Actual 1"), pre
     st.pyplot(fig)
 
 # ==============================
-# Sidebar Navigation
-# ==============================
-st.sidebar.title("📰 Sarcasm Detector")
+
 st.sidebar.markdown("---")
 st.sidebar.caption("Upload → Preprocess → Train → Evaluate → Predict")
 st.sidebar.markdown("---")
@@ -231,7 +348,6 @@ st.sidebar.markdown("---")
 # Page 1 — Data Upload
 # ==============================
 def page_upload():
-    st.title("Data Upload")
     f = st.file_uploader("Upload dataset", type=["csv", "json", "txt", "jsonl"])
     if f is not None:
         name = f.name.lower()
@@ -267,7 +383,6 @@ def page_upload():
 # Page 2 — Data Preprocessing
 # ==============================
 def page_preprocess():
-    st.title("Data Preprocessing")
     if st.session_state.df is None:
         st.warning("Please upload a dataset in **Data Upload**."); return
     df = st.session_state.df.copy()
@@ -276,13 +391,34 @@ def page_preprocess():
         st.warning("Select text and label columns in **Data Upload**."); return
 
     st.subheader("Text Cleaning")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1: st.session_state.clean_lower = st.checkbox("lowercase", value=st.session_state.clean_lower)
     with c2: st.session_state.clean_punct = st.checkbox("remove punctuation", value=st.session_state.clean_punct)
     with c3: st.session_state.dedupe = st.checkbox("drop duplicate texts", value=st.session_state.dedupe)
+    with c4: st.session_state.remove_stop = st.checkbox("remove stop words", value=st.session_state.remove_stop)
+
+
+    
+    # Start button placed **after** cleaning options
+    if not st.button('▶ Start Preprocessing', key='btn_preprocess'):
+        st.info('Adjust the cleaning options above, then click **Start Preprocessing**.')
+        return
 
     df["__text__"] = df[text_col].astype(str).apply(lambda t: basic_clean(t, st.session_state.clean_lower, st.session_state.clean_punct))
 
+    
+
+
+    # Optional stopword removal (UI-only; affects text going into embeddings)
+
+
+    if st.session_state.get('remove_stop', False):
+
+
+        _stops = set(ENGLISH_STOP_WORDS)
+
+
+        df['__text__'] = df['__text__'].apply(lambda s: ' '.join([w for w in s.split() if w not in _stops]))
     raw_lbl = df[label_col]
     if raw_lbl.dtype == bool:
         df["__label__"] = raw_lbl.astype(int)
@@ -300,6 +436,24 @@ def page_preprocess():
         n0 = int(vc.get(0,0)); n1 = int(vc.get(1,0)); N = max(1, n0+n1)
         st.write(pd.DataFrame({"class":["Not Sarcastic (0)","Sarcastic (1)"], "count":[n0,n1], "percent":[round(100*n0/N,2), round(100*n1/N,2)]}))
 
+    
+    # --- Wordle-like Word Cloud (UI-only) ---
+    st.subheader("Word Cloud")
+    st.caption("A visual of frequent tokens after cleaning" + (" and stopword removal" if st.session_state.remove_stop else "") + ".")
+    try:
+        from wordcloud import WordCloud
+        import matplotlib.pyplot as plt
+        all_text = " ".join(df["__text__"].astype(str).tolist())
+        if len(all_text.strip()) > 0:
+            wc = WordCloud(width=1000, height=400, background_color="white").generate(all_text)
+            fig_wc = plt.figure(figsize=(10, 4))
+            plt.imshow(wc, interpolation="bilinear"); plt.axis("off"); plt.tight_layout()
+            st.pyplot(fig_wc)
+        else:
+            st.info("No text available for word cloud yet.")
+    except Exception as _e:
+        st.info("Install optional dependency: `pip install wordcloud`")
+    # --- End Word Cloud ---
     st.subheader("Train/Test Split")
     c1, c2 = st.columns(2)
     with c1: st.session_state.test_size = st.slider("Test size", 0.1, 0.4, float(st.session_state.test_size), 0.05)
@@ -385,7 +539,6 @@ pip install tensorflow==2.15.0 tensorflow-hub==0.12.0
 # Page 3 — Model Training
 # ==============================
 def page_train():
-    st.title("Model Training")
     required = ["X_train_emb", "X_test_emb", "y_train", "y_test", "scaler", "prep_cache"]
     if not all(k in st.session_state and st.session_state[k] is not None for k in required):
         st.warning("Please finish **Data Preprocessing** first."); return
@@ -401,19 +554,24 @@ def page_train():
         max_depth = st.number_input("RandomForest max_depth (0=None)", 0, 100, 0, step=1)
         max_depth = None if max_depth == 0 else int(max_depth)
 
-    colA, colB = st.columns(2)
-    with colA:
-        with st.spinner("Training Logistic Regression…"):
-            lr = LogisticRegression(C=C, solver="liblinear", random_state=st.session_state.random_state)
-            lr.fit(X_lr_train, y_lr_train)
-    with colB:
-        with st.spinner("Training Random Forest…"):
-            rf = RandomForestClassifier(n_estimators=int(n_estimators), max_depth=max_depth,
-                                        random_state=st.session_state.random_state, n_jobs=-1)
-            rf.fit(X_rf_train, y_rf_train)
-
-    st.session_state.models = {"lr": lr, "rf": rf}
-    st.success("Training complete. Proceed to **Model Evaluation**.")
+    # Only run training when the user clicks the button
+    if st.button("▶ Train Model", key="btn_train_go"):
+        colA, colB = st.columns(2)
+        with colA:
+            with st.spinner("Training Logistic Regression…"):
+                lr = LogisticRegression(C=C, solver="liblinear", random_state=st.session_state.random_state)
+                lr.fit(X_lr_train, y_lr_train)
+        with colB:
+            with st.spinner("Training Random Forest…"):
+                rf = RandomForestClassifier(n_estimators=int(n_estimators), max_depth=max_depth,
+                                            random_state=st.session_state.random_state, n_jobs=-1)
+                rf.fit(X_rf_train, y_rf_train)
+        st.session_state.models = {"lr": lr, "rf": rf}
+        st.success("Training complete. Proceed to **Model Evaluation**.")
+    else:
+        if st.session_state.get("models"):
+            st.success("Models already trained. Adjust hyperparameters and click **Train Model** to retrain.")
+        st.info("Adjust hyperparameters above, then click **Train Model**.")
 
 # ==============================
 # Page 4 — Model Evaluation
@@ -423,7 +581,6 @@ def _safe_auc(y_true, scores):
     except Exception: return float("nan")
 
 def page_evaluation():
-    st.title("Model Evaluation")
     req = ["models", "X_test_emb", "y_test", "scaler", "prep_cache"]
     if not all(k in st.session_state and st.session_state[k] is not None for k in req):
         st.warning("Train models in **Model Training** first."); return
@@ -535,34 +692,37 @@ def page_prediction():
 # ==============================
 st.sidebar.markdown("---")
 
-# --- Fixed top navigation tabs (UI-only; ML code untouched) ---
+# --- Safety fallback: ensure `page` exists even if top combo didn't render ---
+try:
+    page
+except NameError:
+    page = st.session_state.get('nav_combo_top') or st.session_state.get('nav_combo_sidebar') or 'Data Upload'
+
+
+
+# === Sticky Top Tabs Navigation (like the screenshot) ===
 st.markdown(
     """
     <style>
-    /* Pin the FIRST st.tabs container to the top */
-    div[data-testid='stTabs']:first-of-type {
-        position: fixed; top: 0; left: 0; right: 0; width: 100%;
-        z-index: 10000;
-        background: var(--bg, #f6f8fb);
-        margin: 0;
+    div[data-testid="stTabs"] > div[role="tablist"] {
+        position: sticky;
+        top: 0;
+        z-index: 10100;
+        background: var(--background-color);
+        border-bottom: 1px solid rgba(49,51,63,0.2);
     }
-    /* Style the tablist and add a divider + shadow */
-    div[data-testid='stTabs']:first-of-type > div[role='tablist'] {
-        position: relative;
-        border-bottom: 1px solid #e5e7eb;
-        box-shadow: 0 2px 6px rgba(0,0,0,.06);
-        padding-top: .35rem; padding-bottom: .35rem;
-        background: transparent;
-    }
-    /* Make space so content isn't hidden under the fixed tabs */
-    .block-container { padding-top: 4.8rem; }
-    /* Keep Streamlit header/menu above tabs */
-    header[data-testid='stHeader'] { z-index: 10100; }
+    .block-container { padding-top: 1rem !important; }
     </style>
-    """,
+    """
+    ,
     unsafe_allow_html=True,
 )
 
+
+# --- Auth Gate: show login unless authenticated ---
+if not st.session_state.get("is_authed", False):
+    render_login()
+    st.stop()
 _tab_labels = [
     "About",
     "Home & Data Overview",
@@ -578,14 +738,14 @@ with _tabs[0]:
     <div style="background-color: #f2f7f7; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem;">
         <h2 style="color: #030a0a; text-align: center;">📌 About This App</h2>
         <p style="text-align:center;max-width:900px;margin:0 auto;">
-            This dashboard predicts Sarcasm in Comments Using ELMo
+            This dashboard predicts sarcasm in comments.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div style="background-color: #f2f7f7; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem;">
-        <h2 style="color: #030a0a; text-align: center;">👥 Group 9 Team Members</h2>
+        <h2 style="color: #030a0a; text-align: center;">👥Team Members</h2>
         <div style="display: flex; justify-content: space-around; flex-wrap: wrap;">
             <div>• Erwin K. Opare-Essel - 22254064</div>
             <div>• Emmanuel Oduro Dwamena - 11410636</div>
@@ -598,28 +758,19 @@ with _tabs[0]:
     """, unsafe_allow_html=True)
 
 with _tabs[1]:
-    # Your original 'home/data' page
     page_upload()
 
 with _tabs[2]:
-    st.subheader("Data Preprocessing")
-    if st.button("▶ Start Preprocessing", key="btn_preprocess_start"):
-        page_preprocess()
-    else:
-        st.info("Click **Start Preprocessing** to begin. This keeps your settings visible before running.")
-
+    page_preprocess()
 with _tabs[3]:
-    st.subheader("Model Training")
-    if st.button("▶ Start Training", key="btn_train_start"):
-        page_train()
-    else:
-        st.info("Click **Start Training** to fit models with the current preprocessing & hyperparameters.")
-
+    page_train()
 with _tabs[4]:
-    page_evaluation()
+    st.subheader("Model Evaluation")
+    # Start button to evaluate models
+    if st.button("▶ Evaluate Model", key="btn_eval"):
+        page_evaluation()
+    elif st.session_state.get("models"):
+        st.info("Click **Evaluate Model** to compute metrics and plots.")
 
 with _tabs[5]:
-    # Single & batch prediction UI (unique keys are already defined inside this function)
     page_prediction()
-
-
